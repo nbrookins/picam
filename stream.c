@@ -247,6 +247,33 @@ static const float roi_width_default = 1.0f;
 static float roi_height;
 static const float roi_height_default = 1.0f;
 
+static char image_filter[13];
+static const char *image_filter_default = "none";
+typedef struct image_filter_option {
+  char *name;
+  OMX_IMAGEFILTERTYPE control;
+} image_filter_option;
+static const image_filter_option image_filter_options[] = {
+  { .name = "none",         .control = OMX_ImageFilterNone },
+  { .name = "emboss",       .control = OMX_ImageFilterEmboss },
+  { .name = "negative",     .control = OMX_ImageFilterNegative },
+  { .name = "sketch",       .control = OMX_ImageFilterSketch },
+  { .name = "oilpaint",     .control = OMX_ImageFilterOilPaint },
+  { .name = "hatch",        .control = OMX_ImageFilterHatch },
+  { .name = "gpen",         .control = OMX_ImageFilterGpen },
+  { .name = "solarise",     .control = OMX_ImageFilterSolarize },
+  { .name = "watercolor"    .control = OMX_ImageFilterWatercolor },
+  { .name = "pastel",       .control = OMX_ImageFilterPastel },
+  { .name = "film",         .control = OMX_ImageFilterFilm },
+  { .name = "blur",         .control = OMX_ImageFilterBlur },
+  { .name = "cswap",        .control = OMX_ImageFilterColourSwap },
+  { .name = "washedout",    .control = OMX_ImageFilterWashedOut },
+  { .name = "cpoint",       .control = OMX_ImageFilterColourPoint },
+  { .name = "posterise",    .control = OMX_ImageFilterPosterise },
+  { .name = "cbalance",     .control = OMX_ImageFilterColourBalance },
+  { .name = "cartoon",      .control = OMX_ImageFilterCartoon },
+};
+
 static char white_balance[13];
 static const char *white_balance_default = "auto";
 typedef struct white_balance_option {
@@ -424,12 +451,14 @@ static int fr_q16;
 
 // Function prototypes
 static int camera_set_white_balance(char *wb);
+static int camera_set_image_filter(char *ifx);
 static int camera_set_exposure_control(char *ex);
 static int camera_set_custom_awb_gains();
 static void encode_and_send_image();
 static void encode_and_send_audio();
 void start_record();
 void stop_record();
+//int av_samples_get_buffer_size(int *linesize, int nb_channels, int nb_samples, enum AVSampleFormat sample_fmt, int align);
 #if ENABLE_AUTO_GOP_SIZE_CONTROL_FOR_VFR
 static void set_gop_size(int gop_size);
 #endif
@@ -1348,7 +1377,39 @@ void on_file_create(char *filename, char *content) {
         }
         free(file_buf);
       }
-    }
+     }
+  	} else if (strncmp(filename, "if_", 3) == 0) { // e.g. wb_sun
+	  char *if_mode = filename + 3;
+	  int matched = 0;
+	  int i;
+	  for (i = 0; i < sizeof(image_filter_options) / sizeof(image_filter_option); i++) {
+	    if (strcmp(image_filter_options[i].name, if_mode) == 0) {
+	      strncpy(image_filter, if_mode, sizeof(image_filter) - 1);
+	      image_filter[sizeof(image_filter) - 1] = '\0';
+	      matched = 1;
+	      break;
+	    }
+	  }
+	  if (matched) {
+	    if (camera_set_image_filter(image_filter) == 0) {
+	      log_info("changed the image_filter to %s\n", image_filter);
+	    } else {
+	      log_error("error: failed to set the image_filter to %s\n", image_filter);
+	    }
+	  } else {
+	    log_error("hook error: invalid image_filter: %s\n", image_filter);
+	    log_error("(valid values: ");
+	    int size = sizeof(image_filter_options) / sizeof(image_filter_option);
+	    for (i = 0; i < size; i++) {
+	      log_error("%s", image_filter_options[i].name);
+	      if (i + 1 == size) { // the last item
+	        log_error(")\n");
+	      } else {
+	        log_error("/");
+	      }
+	    }
+	  }
+  
   } else if (strncmp(filename, "wb_", 3) == 0) { // e.g. wb_sun
     char *wb_mode = filename + 3;
     int matched = 0;
@@ -3221,6 +3282,39 @@ static int camera_set_white_balance(char *wb) {
   return 0;
 }
 
+static int camera_set_image_filter(char *wb) {
+  OMX_CONFIG_IMAGEFILTERTYPE imagefilter;
+  OMX_ERRORTYPE error;
+  int i;
+
+  memset(&imagefilter, 0, sizeof(OMX_CONFIG_IMAGEFILTERTYPE));
+  imagefilter.nSize = sizeof(OMX_CONFIG_IMAGEFILTERTYPE);
+  imagefilter.nVersion.nVersion = OMX_VERSION;
+  imagefilter.nPortIndex = OMX_ALL;
+
+  OMX_IMAGEFILTERTYPE control = OMX_ImageFilterMax;
+  for (i = 0; i < sizeof(image_filter_options) / sizeof(image_filter_option); i++) {
+    if (strcmp(image_filter_options[i].name, wb) == 0) {
+      control = image_filter_options[i].control;
+      break;
+    }
+  }
+  if (control == OMX_ImageFilterMax) {
+    log_error("error: invalid image_filter value: %s\n", wb);
+    return -1;
+  }
+  imagefilter.eImageFilter = control;
+
+  error = OMX_SetParameter(ILC_GET_HANDLE(camera_component),
+      OMX_IndexConfigCommonImageFilter, &imagefilter);
+  if (error != OMX_ErrorNone) {
+    log_fatal("error: failed to set camera imagefilter: 0x%x\n", error);
+    return -1;
+  }
+
+  return 0;
+}
+
 static int camera_set_exposure_control(char *ex) {
   OMX_CONFIG_EXPOSURECONTROLTYPE exposure_control_type;
   OMX_ERRORTYPE error;
@@ -4429,6 +4523,10 @@ static void openmax_cam_loop() {
   if (camera_set_white_balance(white_balance) != 0) {
     exit(EXIT_FAILURE);
   }
+  
+  if (camera_set_image_filter(image_filter) != 0) {
+    exit(EXIT_FAILURE);
+  }
 
   if (camera_set_custom_awb_gains() != 0) {
     exit(EXIT_FAILURE);
@@ -4677,6 +4775,10 @@ static void print_usage() {
   log_info("                        incandescent: Light source is incandescent\n");
   log_info("                        flash: Light source is a flash\n");
   log_info("                        horizon: Light source is the sun on the horizon\n");
+  log_info("  --if <value>        image filter; none,negative,solarise,sketch,denoise\n");
+  log_info("                      ,emboss,oilpaint,hatch,gpen,pastel,watercolor,film,\n");
+  log_info("						blur,saturation,cswap,washedout,posterise,\n");
+  log_info("						cpoint,cbalance,cartoon\n");
   log_info("  --wbred <num>       Red gain. Implies \"--wb off\". (0.0 .. 8.0)\n");
   log_info("  --wbblue <num>      Blue gain. Implies \"--wb off\". (0.0 .. 8.0)\n");
   log_info("  --metering <value>  Set metering type. <value> is one of:\n");
@@ -4775,6 +4877,7 @@ int main(int argc, char **argv) {
     { "autoexthreshold", required_argument, NULL, 0 },
     { "ex", required_argument, NULL, 0 },
     { "wb", required_argument, NULL, 0 },
+	{ "if", required_argument, NULL, 0 },
     { "wbred", required_argument, NULL, 0 },
     { "wbblue", required_argument, NULL, 0 },
     { "metering", required_argument, NULL, 0 },
@@ -4880,6 +4983,9 @@ int main(int argc, char **argv) {
 
   strncpy(white_balance, white_balance_default, sizeof(white_balance) - 1);
   white_balance[sizeof(white_balance) - 1] = '\0';
+
+  strncpy(image_filter, image_filter_default, sizeof(image_filter) - 1);
+  image_filter[sizeof(image_filter) - 1] = '\0';
 
   strncpy(exposure_control, exposure_control_default, sizeof(exposure_control) - 1);
   exposure_control[sizeof(exposure_control) - 1] = '\0';
@@ -5079,6 +5185,23 @@ int main(int argc, char **argv) {
             log_fatal("error: invalid white balance: %s\n", optarg);
             return EXIT_FAILURE;
           }
+		  
+      } else if (strcmp(long_options[option_index].name, "if") == 0) {
+        strncpy(image_filter, optarg, sizeof(image_filter) - 1);
+        image_filter[sizeof(image_filter) - 1] = '\0';
+        int matched = 0;
+        int i;
+        for (i = 0; i < sizeof(image_filter_options) / sizeof(image_filter_option); i++) {
+          if (strcmp(image_filter_options[i].name, image_filter) == 0) {
+            matched = 1;
+            break;
+          }
+        }
+        if (!matched) {
+          log_fatal("error: invalid image_filter: %s\n", optarg);
+          return EXIT_FAILURE;
+        }
+		  
         } else if (strcmp(long_options[option_index].name, "ex") == 0) {
           strncpy(exposure_control, optarg, sizeof(exposure_control) - 1);
           exposure_control[sizeof(exposure_control) - 1] = '\0';
