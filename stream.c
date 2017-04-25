@@ -5185,6 +5185,7 @@ int main(int argc, char **argv) {
             log_fatal("error: invalid white balance: %s\n", optarg);
             return EXIT_FAILURE;
           }
+		  
       } else if (strcmp(long_options[option_index].name, "if") == 0) {
         strncpy(image_filter, optarg, sizeof(image_filter) - 1);
         image_filter[sizeof(image_filter) - 1] = '\0';
