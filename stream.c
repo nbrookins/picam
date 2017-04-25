@@ -4775,10 +4775,10 @@ static void print_usage() {
   log_info("                        incandescent: Light source is incandescent\n");
   log_info("                        flash: Light source is a flash\n");
   log_info("                        horizon: Light source is the sun on the horizon\n");
-  log_info("  --if <value>        image filter; none,negative,solarise,sketch,denoise\n");
-  log_info("                      ,emboss,oilpaint,hatch,gpen,pastel,watercolor,film,\n");
-  log_info("						blur,saturation,cswap,washedout,posterise,\n");
-  log_info("						cpoint,cbalance,cartoon\n");
+  log_info("  --if <value>        image filter; none, negative, solarise, sketch, denoise,\n");
+  log_info("                        emboss, oilpaint, hatch, gpen, pastel, watercolor, film,\n");
+  log_info("                        blur, saturation, cswap, washedout, posterise,\n");
+  log_info("                        cpoint, cbalance, cartoon\n");
   log_info("  --wbred <num>       Red gain. Implies \"--wb off\". (0.0 .. 8.0)\n");
   log_info("  --wbblue <num>      Blue gain. Implies \"--wb off\". (0.0 .. 8.0)\n");
   log_info("  --metering <value>  Set metering type. <value> is one of:\n");
@@ -5185,7 +5185,6 @@ int main(int argc, char **argv) {
             log_fatal("error: invalid white balance: %s\n", optarg);
             return EXIT_FAILURE;
           }
-		  
       } else if (strcmp(long_options[option_index].name, "if") == 0) {
         strncpy(image_filter, optarg, sizeof(image_filter) - 1);
         image_filter[sizeof(image_filter) - 1] = '\0';
